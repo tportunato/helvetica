@@ -121,7 +121,7 @@ export default function App(){
   const [surelN,setSurelN]=useState(0);
   const [devGeom,setDevGeom]=useState([]);
   const [plqGeom,setPlqGeom]=useState([]);
-  const parcelRef=useRef(),drillBoundsRef=useRef(),tokRef=useRef(0),lockRef=useRef(null),lmRef=useRef([0,1]),pLayersRef=useRef({}),selFnRef=useRef(null),pStateRef=useRef({}),surelSetRef=useRef(new Set()),bTokRef=useRef(0),devMapRef=useRef({}),plqMapRef=useRef({});
+  const parcelRef=useRef(),drillBoundsRef=useRef(),drillGeomRef=useRef(),tokRef=useRef(0),lockRef=useRef(null),lmRef=useRef([0,1]),pLayersRef=useRef({}),selFnRef=useRef(null),pStateRef=useRef({}),surelSetRef=useRef(new Set()),bTokRef=useRef(0),devMapRef=useRef({}),plqMapRef=useRef({});
   const [weights,setWeights]=useState(PRESETS["Yield seeker"]);
   const [info,setInfo]=useState(null);
   const divRef=useRef(),mapRef=useRef(),layerRef=useRef(),labelRef=useRef(),lakeRef=useRef(),itemsRef=useRef([]),updRef=useRef();
@@ -137,6 +137,14 @@ export default function App(){
     const tok=++tokRef.current;setPLoad(true);
     try{const r=await fetch(u);const j=await r.json();if(tok!==tokRef.current)return;setParcels(j&&j.features?j:{type:"FeatureCollection",features:[]});setPLoad(false);}
     catch(e){if(tok!==tokRef.current)return;setPErr("net");setPLoad(false);}};
+  const fetchCommuneParcels=async()=>{const map=mapRef.current;const b=drillBoundsRef.current,g=drillGeomRef.current;if(!map||!b)return;
+    setPErr(false);const tok=++tokRef.current;setPLoad(true);
+    const base="https://vector.sitg.ge.ch/arcgis/rest/services/CAD_PARCELLE_MENSU/MapServer/0/query?geometry="+b.getWest()+","+b.getSouth()+","+b.getEast()+","+b.getNorth()+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=NO_PARCELLE,NO_COMM,COMMUNE,SURFACE,TYPE_PROPRI,EGRID&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000";
+    let all=[],off=0,page=0;
+    try{while(page<20){const r=await fetch(base+"&resultOffset="+off);const j=await r.json();if(tok!==tokRef.current)return;const fs=(j&&j.features)||[];all=all.concat(fs);if(fs.length<2000)break;off+=2000;page++;}
+      const feats=g?all.filter(ft=>{const p=repPoint(ft);return p&&geomContains(g,p);}):all;
+      if(tok!==tokRef.current)return;setParcels({type:"FeatureCollection",features:feats});setPLoad(false);
+    }catch(e){if(tok!==tokRef.current)return;setPErr("net");setPLoad(false);}};
   const PP=p=>({no:p.NO_PARCELLE!=null?p.NO_PARCELLE:p.n,comm:p.NO_COMM!=null?p.NO_COMM:p.c,surf:p.SURFACE!=null?p.SURFACE:p.s,ten:p.TYPE_PROPRI||p.t,egr:p.EGRID||p.e,use:p.u||null,zone:p.z||null});
   // --- surélévation + building helpers ---
   const repPoint=ft=>{const g=ft&&ft.geometry;if(!g)return null;let ring;if(g.type==="Polygon")ring=g.coordinates[0];else if(g.type==="MultiPolygon")ring=g.coordinates[0][0];else return null;if(!ring||!ring.length)return null;let x=0,y=0;ring.forEach(c=>{x+=c[0];y+=c[1];});return [x/ring.length,y/ring.length];};
@@ -247,7 +255,7 @@ export default function App(){
     const layer=L.geoJSON(data,{style:styleFn,onEachFeature:(f,lyr)=>{const key=keyOf(f,lvl),nm=f.properties.name||key;
       lyr.on("mouseover",()=>{lyr.setStyle({weight:2.4,color:C.accentHi,fillOpacity:0.92});lyr.bringToFront();showInfo(key,nm);});
       lyr.on("mouseout",()=>lyr.setStyle(styleFn(f)));
-      lyr.on("click",()=>{ if(lvl==="canton"){ if(key==="GE"){setLevel("commune");setMetric("tax");} else showInfo(key,nm); } else if(lvl==="commune"){ drillBoundsRef.current=lyr.getBounds(); setDrillC(nm); setLevel("parcel"); } });
+      lyr.on("click",()=>{ if(lvl==="canton"){ if(key==="GE"){setLevel("commune");setMetric("tax");} else showInfo(key,nm); } else if(lvl==="commune"){ drillBoundsRef.current=lyr.getBounds(); drillGeomRef.current=f.geometry; setDrillC(nm); setLevel("parcel"); } });
     }}).addTo(map); layerRef.current=layer;
     const lake=L.geoJSON(LAKES_GEO,{interactive:false,style:{fillColor:"#15384f",fillOpacity:0.96,weight:0,color:"#15384f"}}).addTo(map); lakeRef.current=lake;
     const labels=L.layerGroup(); const items=[];
@@ -278,8 +286,7 @@ export default function App(){
     setDevGeom([]); setPlqGeom([]); devMapRef.current={}; plqMapRef.current={};
     if(drillBoundsRef.current){ fetchSurel(drillBoundsRef.current); fetchDevPlq(drillBoundsRef.current); }
     if(drillC && BAKED_PARCELS[drillC]){ setParcels(BAKED_PARCELS[drillC]); setPErr(false); setPLoad(false); return; }
-    let t; const run=()=>{clearTimeout(t);t=setTimeout(fetchParcels,400);};
-    fetchParcels(); map.on("moveend",run); return ()=>{map.off("moveend",run);clearTimeout(t);};
+    fetchCommuneParcels();
   },[level,drillC]);
   useEffect(()=>{ const L=window.L,map=mapRef.current; if(!L||!map)return;
     if(parcelRef.current){map.removeLayer(parcelRef.current);parcelRef.current=null;}
