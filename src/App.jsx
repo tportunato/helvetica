@@ -152,7 +152,9 @@ export default function App(){
       if(praw.length){for(const ft of praw){ft.__c=repPoint(ft);parc.push(ft);}}
       else if(b){const env="geometry="+b.getWest()+","+b.getSouth()+","+b.getEast()+","+b.getNorth()+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects";const bb=await pageAll(PQ+env+flds);for(const ft of bb){const c=repPoint(ft);if(!c)continue;if(g&&!geomContains(g,c))continue;ft.__c=c;parc.push(ft);}}
       let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;for(const ft of parc){const c=ft.__c;if(!c)continue;if(c[0]<mnx)mnx=c[0];if(c[0]>mxx)mxx=c[0];if(c[1]<mny)mny=c[1];if(c[1]>mxy)mxy=c[1];}
-      let zones=[];if(parc.length&&mxx>=mnx){const zenv="geometry="+mnx+","+mny+","+mxx+","+mxy+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000&outFields=ABRV_ZONE";try{zones=await pageAll("https://vector.sitg.ge.ch/arcgis/rest/services/RDPPF_ZONES_PRIM/MapServer/0/query?"+zenv);}catch(e){if(e==="stale")return;zones=[];}}
+      let zones=[];if(parc.length){const ZQ="https://vector.sitg.ge.ch/arcgis/rest/services/RDPPF_ZONES_PRIM/MapServer/0/query?",zflds="&outFields=ABRV_ZONE&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000";
+        try{zones=await pageAll(ZQ+"where="+encodeURIComponent("COMMUNE LIKE '"+like+"'")+zflds);}catch(e){if(e==="stale")return;zones=[];}
+        if(!zones.length&&mxx>=mnx){const zenv="geometry="+mnx+","+mny+","+mxx+","+mxy+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000&outFields=ABRV_ZONE";try{zones=await pageAll(ZQ+zenv);}catch(e){if(e==="stale")return;zones=[];}}}
       if(zones.length){const zz=zones.map(zf=>{let ax=1e9,ay=1e9,bx=-1e9,by=-1e9;const sc=r=>r.forEach(c=>{if(c[0]<ax)ax=c[0];if(c[0]>bx)bx=c[0];if(c[1]<ay)ay=c[1];if(c[1]>by)by=c[1];});const gg=zf.geometry;if(gg){if(gg.type==="Polygon")gg.coordinates.forEach(sc);else if(gg.type==="MultiPolygon")gg.coordinates.forEach(po=>po.forEach(sc));}return{g:gg,a:zf.properties&&zf.properties.ABRV_ZONE,bb:[ax,ay,bx,by]};});
         for(const ft of parc){const c=ft.__c;if(!c)continue;for(const z of zz){const q=z.bb;if(c[0]<q[0]||c[0]>q[2]||c[1]<q[1]||c[1]>q[3])continue;if(geomContains(z.g,c)){ft.properties.z=z.a;ft.properties.u=useFromZone(z.a);break;}}}}
       for(const ft of parc)delete ft.__c;
@@ -303,7 +305,7 @@ export default function App(){
   },[level,drillC]);
   useEffect(()=>{ const L=window.L,map=mapRef.current; if(!L||!map)return;
     if(parcelRef.current){map.removeLayer(parcelRef.current);parcelRef.current=null;}
-    lockRef.current=null; setPSel(false); pLayersRef.current={};
+    lockRef.current=null; setPSel(false); pLayersRef.current={}; let hov=null;
     if(level!=="parcel"||!parcels||!parcels.features||!parcels.features.length)return;
     const surf=parcels.features.map(f=>PP(f.properties).surf).filter(x=>x>0);
     lmRef.current=[Math.log((Math.min(...surf)||1)+1),Math.log((Math.max(...surf)||1)+1)];
@@ -312,8 +314,8 @@ export default function App(){
       lockRef.current=lyr; lyr.setStyle(SEL); lyr.bringToFront(); setPSel(true); showParcel(f.properties); };
     const layer=L.geoJSON(parcels,{style:styleParcel,onEachFeature:(f,lyr)=>{
       pLayersRef.current[PP(f.properties).no]=lyr;
-      lyr.on("mouseover",()=>{ if(lyr!==lockRef.current){lyr.setStyle({weight:2,color:C.accentHi,fillOpacity:0.92});lyr.bringToFront();} if(!lockRef.current)showParcel(f.properties); });
-      lyr.on("mouseout",()=>{ if(lyr!==lockRef.current)lyr.setStyle(styleParcel(f)); });
+      lyr.on("mouseover",()=>{ if(hov&&hov!==lyr&&hov!==lockRef.current)hov.setStyle(styleParcel(hov.feature)); if(lyr!==lockRef.current){lyr.setStyle({weight:2,color:C.accentHi,fillOpacity:0.92});hov=lyr;} if(!lockRef.current)showParcel(f.properties); });
+      lyr.on("mouseout",()=>{ if(lyr!==lockRef.current)lyr.setStyle(styleParcel(f)); if(hov===lyr)hov=null; });
       lyr.on("click",()=>doLock(lyr,f));
     }}).addTo(map); parcelRef.current=layer;
     selFnRef.current=(no)=>{const lyr=pLayersRef.current[no];if(!lyr)return;doLock(lyr,lyr.feature);map.fitBounds(lyr.getBounds(),{maxZoom:18,padding:[60,60]});};
@@ -337,6 +339,8 @@ export default function App(){
   },[parcels,devGeom,plqGeom]);
   useEffect(()=>{ if(parcelRef.current){parcelRef.current.setStyle(styleParcel); if(lockRef.current)lockRef.current.setStyle(SEL);} },[pMetric,pSurf,pUses,pSurel,pPlan]);
   useEffect(()=>{ restyle(); },[metric,cap,weights,sector]);
+  useEffect(()=>{ if(level!=="parcel"||pLoad)return; const fs=(parcels&&parcels.features)||[]; if(!fs.length)return;
+    if(pMetric==="use"&&!fs.some(f=>f.properties&&f.properties.u))setPMetric("surface"); },[parcels,pLoad,level,pMetric]);
   useEffect(()=>{ if(tab==="map"&&mapRef.current){const id=setTimeout(()=>mapRef.current.invalidateSize(),60);return ()=>clearTimeout(id);} },[tab]);
   useEffect(()=>{ const f=()=>{if(mapRef.current)mapRef.current.invalidateSize();}; window.addEventListener("resize",f); return ()=>window.removeEventListener("resize",f); },[]);
 
@@ -357,7 +361,11 @@ export default function App(){
         .lblbox{pointer-events:none!important;background:transparent!important;border:none!important}
         .lbl{display:inline-block;transform:translate(-50%,-50%);font-family:${mono};font-weight:600;color:#F2EEE6;white-space:nowrap;text-shadow:0 0 3px #060f1a,0 0 6px #060f1a,0 1px 2px #000}
         .lbl-c{font-size:11px;letter-spacing:0.03em}
-        .lbl-m{font-size:10px}`}</style>
+        .lbl-m{font-size:10px}
+        @keyframes hspin{to{transform:rotate(360deg)}}
+        .hspin{width:30px;height:30px;border:3px solid rgba(232,229,222,0.14);border-top-color:#C8692A;border-right-color:#E27C38;border-radius:50%;animation:hspin .7s linear infinite}
+        @keyframes hdots{0%,20%{opacity:0}50%{opacity:1}100%{opacity:0}}
+        .hdots::after{content:"…";animation:hdots 1.3s ease-in-out infinite}`}</style>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",height:48,background:C.panelHi,borderBottom:"1px solid "+C.border}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontFamily:sans,fontSize:14,fontWeight:600,color:"#fff"}}>TP</span><span style={{width:7,height:7,borderRadius:"50%",background:C.accent}}/><span style={{fontFamily:mono,fontSize:11.5,color:C.muted,letterSpacing:"0.08em",marginLeft:4,textTransform:"uppercase"}}>Helvetica Terminal</span><span style={{display:"flex",gap:4,marginLeft:8}}>{["map","data"].map(t=>(<span key={t} onClick={()=>setTab(t)} style={{fontFamily:mono,fontSize:9,color:tab===t?C.bg:C.accentHi,background:tab===t?C.accentHi:"transparent",border:"1px solid "+C.borderHi,borderRadius:3,padding:"2px 9px",cursor:"pointer",letterSpacing:"0.05em"}}>{t==="map"?"CARTE":"DATA"}</span>))}</span></div>
         <span style={{fontFamily:mono,fontSize:10.5,color:C.muted}}>{tab==="data"?"Data sources & lineage":(level==="parcel"?((drillC||"Commune")+" · parcels (live SITG)"):(level==="commune"?"Genève · 45 communes":"Suisse · 26 cantons"))}</span>
@@ -396,7 +404,9 @@ export default function App(){
         <div style={{flex:"2 1 600px",minWidth:0,position:"relative"}}>
           {err && <div style={{padding:30,fontFamily:mono,fontSize:12,color:C.neg}}>Map library failed to load in this sandbox. On deploy it runs from the bundled package.</div>}
           <div ref={divRef} style={{width:"100%",height:"calc(100vh - 230px)",minHeight:380,borderRadius:6,border:"1px solid "+C.border,overflow:"hidden",background:C.bg}}/>
-          {level==="parcel" && (pLoad||pErr) && <div style={{position:"absolute",top:46,left:14,fontFamily:mono,fontSize:10.5,color:pErr==="zoom"?C.muted:pErr==="net"?C.neg:C.accentHi,background:"rgba(8,19,32,0.82)",border:"1px solid "+C.border,borderRadius:4,padding:"5px 10px",zIndex:500}}>{pErr==="zoom"?"Zoom in to load parcels":pErr==="net"?"Live SITG is blocked in this preview · bundled: Confignon, Carouge · live covers all on deploy":"Loading SITG parcels…"}</div>}
+          {level==="parcel" && (pLoad||pErr) && <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:500,pointerEvents:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:13,textAlign:"center",background:"rgba(8,19,32,0.9)",border:"1px solid "+(pErr==="net"?C.neg:C.borderHi),borderRadius:10,padding:"24px 30px",boxShadow:"0 10px 34px rgba(0,0,0,0.5)"}}>
+            {pLoad?<><div className="hspin"/><div><div style={{fontFamily:mono,fontSize:11.5,color:C.accentHi,letterSpacing:"0.07em"}}>LOADING PARCELS<span className="hdots"/></div><div style={{fontFamily:mono,fontSize:9,color:C.mutedDim,marginTop:5}}>{(drillC||"")+" · SITG cadastre"}</div></div></>:<span style={{fontFamily:mono,fontSize:11,maxWidth:230,lineHeight:1.55,color:pErr==="zoom"?C.muted:C.neg}}>{pErr==="zoom"?"Zoom in to load parcels":"Live SITG is blocked in this preview · bundled: Confignon, Carouge · live covers all on deploy"}</span>}
+          </div>}
           {level!=="parcel" && <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
             <span style={{fontFamily:mono,fontSize:9.5,color:C.muted}}>{mset[metric].f(mn)}{mset[metric].u}</span>
             <div style={{flex:1,height:8,borderRadius:4,background:`linear-gradient(90deg, ${colorFor(metric,mn,mn,mx)}, ${colorFor(metric,mx,mn,mx)})`}}/>
