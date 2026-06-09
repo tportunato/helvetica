@@ -43,6 +43,8 @@ const _h=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)), _x=a=>"#"+a.map(v=>Math
 const LAND="#1b3a5c";
 const SEL={weight:2.8,color:"#F2A05A",fillOpacity:0.95};
 const USES={hab:{l:"Habitation / mixte",c:"#C8692A"},villa:{l:"Villa (zone 5)",c:"#E8A06A"},ind:{l:"Industriel / artisanal",c:"#5B86B0"},agr:{l:"Agricole",c:"#C7B36A"},nat:{l:"Forêt / nature",c:"#4E8C5A"},vrd:{l:"Verdure / loisirs",c:"#6FB07E"},eau:{l:"Eaux / rives",c:"#5BA0B0"},inf:{l:"Infrastructure / autre",c:"#8A93A0"}};
+const ZONE_USE={"5":"villa","4A":"hab","4B":"hab","4BP":"hab","3":"hab","2":"hab","1":"hab","AG":"agr","IA":"ind","BF":"nat","V":"vrd","S":"vrd","JF":"vrd","ER":"eau","FE":"inf"};
+const useFromZone=z=>{if(!z)return null;if(ZONE_USE[z])return ZONE_USE[z];const s=""+z;if(s==="5")return "villa";if(/^[1-4]/.test(s))return "hab";if(s[0]==="I")return "ind";if(s.indexOf("AG")===0)return "agr";if(s.indexOf("BF")===0)return "nat";if(s[0]==="V"||s[0]==="S"||s[0]==="J")return "vrd";if(s.indexOf("ER")===0||s[0]==="L")return "eau";return "inf";};
 const vch=(y,c)=>((y/(y+c/100))-1)*100;
 const MC={y:{l:"Net yield",u:"%",f:x=>x.toFixed(2)},v:{l:"Vacancy",u:"%",f:x=>x.toFixed(2)},r:{l:"Rent YoY",u:"%",f:x=>x.toFixed(1)},val:{l:"Value impact",u:"%",f:x=>x.toFixed(1)}};
 const MM={opp:{l:"Opportunity",u:"",f:x=>x.toFixed(0)},tax:{l:"Tax coeff.",u:"",f:x=>x.toFixed(0)},y:{l:"Net yield",u:"%",f:x=>x.toFixed(2)},vac:{l:"Vacancy",u:"%",f:x=>x.toFixed(2)},val:{l:"Value impact",u:"%",f:x=>x.toFixed(1)}};
@@ -110,7 +112,7 @@ export default function App(){
   const [parcels,setParcels]=useState(null);
   const [pLoad,setPLoad]=useState(false);
   const [pErr,setPErr]=useState(false);
-  const [pMetric,setPMetric]=useState("surface");
+  const [pMetric,setPMetric]=useState("use");
   const [drillC,setDrillC]=useState(null);
   const [pSel,setPSel]=useState(false);
   const [pSurf,setPSurf]=useState([0,9e9]);
@@ -137,14 +139,25 @@ export default function App(){
     const tok=++tokRef.current;setPLoad(true);
     try{const r=await fetch(u);const j=await r.json();if(tok!==tokRef.current)return;setParcels(j&&j.features?j:{type:"FeatureCollection",features:[]});setPLoad(false);}
     catch(e){if(tok!==tokRef.current)return;setPErr("net");setPLoad(false);}};
-  const fetchCommuneParcels=async()=>{const map=mapRef.current;const b=drillBoundsRef.current,g=drillGeomRef.current;if(!map||!b)return;
+  const fetchCommuneParcels=async()=>{const map=mapRef.current;const b=drillBoundsRef.current,g=drillGeomRef.current;if(!map)return;
     setPErr(false);const tok=++tokRef.current;setPLoad(true);
-    const base="https://vector.sitg.ge.ch/arcgis/rest/services/CAD_PARCELLE_MENSU/MapServer/0/query?geometry="+b.getWest()+","+b.getSouth()+","+b.getEast()+","+b.getNorth()+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=NO_PARCELLE,NO_COMM,COMMUNE,SURFACE,TYPE_PROPRI,EGRID&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000";
-    let all=[],off=0,page=0;
-    try{while(page<20){const r=await fetch(base+"&resultOffset="+off);const j=await r.json();if(tok!==tokRef.current)return;const fs=(j&&j.features)||[];all=all.concat(fs);if(fs.length<2000)break;off+=2000;page++;}
-      const feats=g?all.filter(ft=>{const p=repPoint(ft);return p&&geomContains(g,p);}):all;
-      if(tok!==tokRef.current)return;setParcels({type:"FeatureCollection",features:feats});setPLoad(false);
-    }catch(e){if(tok!==tokRef.current)return;setPErr("net");setPLoad(false);}};
+    const PQ="https://vector.sitg.ge.ch/arcgis/rest/services/CAD_PARCELLE_MENSU/MapServer/0/query?";
+    const flds="&outFields=NO_PARCELLE,NO_COMM,COMMUNE,SURFACE,TYPE_PROPRI,EGRID&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000";
+    const pageAll=async(url)=>{let all=[],off=0,p=0;while(p<60){const r=await fetch(url+"&resultOffset="+off);const j=await r.json();if(tok!==tokRef.current)throw "stale";const fs=(j&&j.features)||[];all=all.concat(fs);if(fs.length<2000)break;off+=2000;p++;}return all;};
+    const rawN=drillRef.current,nm=Array.isArray(rawN)?rawN[0]:(rawN||"");
+    const like=nm==="Genève"?"Genève%":(nm.replace(/ \(GE\)$/,"").replace(/^Le /,"").replace(/'/g,"''")+"%");
+    try{
+      let praw=await pageAll(PQ+"where="+encodeURIComponent("COMMUNE LIKE '"+like+"'")+flds);
+      const parc=[];
+      if(praw.length){for(const ft of praw){ft.__c=repPoint(ft);parc.push(ft);}}
+      else if(b){const env="geometry="+b.getWest()+","+b.getSouth()+","+b.getEast()+","+b.getNorth()+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects";const bb=await pageAll(PQ+env+flds);for(const ft of bb){const c=repPoint(ft);if(!c)continue;if(g&&!geomContains(g,c))continue;ft.__c=c;parc.push(ft);}}
+      let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;for(const ft of parc){const c=ft.__c;if(!c)continue;if(c[0]<mnx)mnx=c[0];if(c[0]>mxx)mxx=c[0];if(c[1]<mny)mny=c[1];if(c[1]>mxy)mxy=c[1];}
+      let zones=[];if(parc.length&&mxx>=mnx){const zenv="geometry="+mnx+","+mny+","+mxx+","+mxy+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326&returnGeometry=true&geometryPrecision=6&f=geojson&resultRecordCount=2000&outFields=ABRV_ZONE";try{zones=await pageAll("https://vector.sitg.ge.ch/arcgis/rest/services/RDPPF_ZONES_PRIM/MapServer/0/query?"+zenv);}catch(e){if(e==="stale")return;zones=[];}}
+      if(zones.length){const zz=zones.map(zf=>{let ax=1e9,ay=1e9,bx=-1e9,by=-1e9;const sc=r=>r.forEach(c=>{if(c[0]<ax)ax=c[0];if(c[0]>bx)bx=c[0];if(c[1]<ay)ay=c[1];if(c[1]>by)by=c[1];});const gg=zf.geometry;if(gg){if(gg.type==="Polygon")gg.coordinates.forEach(sc);else if(gg.type==="MultiPolygon")gg.coordinates.forEach(po=>po.forEach(sc));}return{g:gg,a:zf.properties&&zf.properties.ABRV_ZONE,bb:[ax,ay,bx,by]};});
+        for(const ft of parc){const c=ft.__c;if(!c)continue;for(const z of zz){const q=z.bb;if(c[0]<q[0]||c[0]>q[2]||c[1]<q[1]||c[1]>q[3])continue;if(geomContains(z.g,c)){ft.properties.z=z.a;ft.properties.u=useFromZone(z.a);break;}}}}
+      for(const ft of parc)delete ft.__c;
+      if(tok!==tokRef.current)return;setParcels({type:"FeatureCollection",features:parc});setPLoad(false);
+    }catch(e){if(tok!==tokRef.current)return;if(e==="stale")return;setPErr("net");setPLoad(false);}};
   const PP=p=>({no:p.NO_PARCELLE!=null?p.NO_PARCELLE:p.n,comm:p.NO_COMM!=null?p.NO_COMM:p.c,surf:p.SURFACE!=null?p.SURFACE:p.s,ten:p.TYPE_PROPRI||p.t,egr:p.EGRID||p.e,use:p.u||null,zone:p.z||null});
   // --- surélévation + building helpers ---
   const repPoint=ft=>{const g=ft&&ft.geometry;if(!g)return null;let ring;if(g.type==="Polygon")ring=g.coordinates[0];else if(g.type==="MultiPolygon")ring=g.coordinates[0][0];else return null;if(!ring||!ring.length)return null;let x=0,y=0;ring.forEach(c=>{x+=c[0];y+=c[1];});return [x/ring.length,y/ring.length];};
