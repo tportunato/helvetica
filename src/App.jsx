@@ -338,6 +338,7 @@ export default function App(){
   useEffect(()=>{ if(parcelRef.current){parcelRef.current.setStyle(styleParcel); if(lockRef.current)lockRef.current.setStyle(SEL);} },[pMetric,pSurf,pUses,pSurel,pPlan]);
   useEffect(()=>{ restyle(); },[metric,cap,weights,sector]);
   useEffect(()=>{ if(tab==="map"&&mapRef.current){const id=setTimeout(()=>mapRef.current.invalidateSize(),60);return ()=>clearTimeout(id);} },[tab]);
+  useEffect(()=>{ const f=()=>{if(mapRef.current)mapRef.current.invalidateSize();}; window.addEventListener("resize",f); return ()=>window.removeEventListener("resize",f); },[]);
 
   const mset=level==="commune"?MM:MC;
   const [mn,mx]=ready&&mapRef.current?scl():[0,1];
@@ -392,9 +393,9 @@ export default function App(){
         </div>
       </div>}
       <div style={{display:"flex",gap:14,padding:14,flexWrap:"wrap"}}>
-        <div style={{flex:"1 1 560px",minWidth:0,position:"relative"}}>
+        <div style={{flex:"2 1 600px",minWidth:0,position:"relative"}}>
           {err && <div style={{padding:30,fontFamily:mono,fontSize:12,color:C.neg}}>Map library failed to load in this sandbox. On deploy it runs from the bundled package.</div>}
-          <div ref={divRef} style={{width:"100%",height:520,borderRadius:6,border:"1px solid "+C.border,overflow:"hidden",background:C.bg}}/>
+          <div ref={divRef} style={{width:"100%",height:"calc(100vh - 230px)",minHeight:380,borderRadius:6,border:"1px solid "+C.border,overflow:"hidden",background:C.bg}}/>
           {level==="parcel" && (pLoad||pErr) && <div style={{position:"absolute",top:46,left:14,fontFamily:mono,fontSize:10.5,color:pErr==="zoom"?C.muted:pErr==="net"?C.neg:C.accentHi,background:"rgba(8,19,32,0.82)",border:"1px solid "+C.border,borderRadius:4,padding:"5px 10px",zIndex:500}}>{pErr==="zoom"?"Zoom in to load parcels":pErr==="net"?"Live SITG is blocked in this preview · bundled: Confignon, Carouge · live covers all on deploy":"Loading SITG parcels…"}</div>}
           {level!=="parcel" && <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
             <span style={{fontFamily:mono,fontSize:9.5,color:C.muted}}>{mset[metric].f(mn)}{mset[metric].u}</span>
@@ -407,7 +408,7 @@ export default function App(){
             <span style={{fontFamily:mono,fontSize:9,color:"#3DBA78",marginLeft:"auto"}}>{drillC&&BAKED_PARCELS[drillC]?"● bundled real SITG (preview)":"● LIVE · SITG cadastre"}</span>
           </div>}
         </div>
-        <div style={{flex:"1 1 280px",minWidth:250}}>
+        <div style={{flex:"1 1 360px",minWidth:340}}>
           <div style={{background:C.panel,border:"1px solid "+C.borderHi,borderRadius:6,padding:14,minHeight:150}}>
             <span style={{fontFamily:mono,fontSize:17,color:C.accentHi,fontWeight:600}}>{info?info.nm:(level==="parcel"?"Hover a parcel":"Hover a region")}</span>
             {info&&info.badge && <div style={{display:"inline-block",marginLeft:8,fontFamily:mono,fontSize:9,color:"#0F2744",background:"#F2A05A",borderRadius:3,padding:"2px 8px",letterSpacing:"0.04em",verticalAlign:"middle"}}>{info.badge}</div>}
